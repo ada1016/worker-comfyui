@@ -62,11 +62,11 @@ RUN if [ "$ENABLE_PYTORCH_UPGRADE" = "true" ]; then \
     fi
 # Steven here
 # 安裝 ResizeImagesByLongerEdge 所在的插件包
-RUN git clone https://github.com/zhangp365/ComfyUI-utils-nodes.git
+RUN git clone https://github.com/zhangp365/ComfyUI-utils-nodes.git ${COMFYUI_PATH}/custom_nodes/ComfyUI-utils-nodes
 
 # 安裝 Impact Pack (包含 LatentSwitch) 並處理其 Python 依賴
-RUN git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git && \
-    cd ComfyUI-Impact-Pack && \
+RUN git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git ${COMFYUI_PATH}/custom_nodes/ComfyUI-Impact-Pack && \
+    cd ${COMFYUI_PATH}/custom_nodes/ComfyUI-Impact-Pack && \
     pip install -r requirements.txt
 
 RUN git clone https://github.com/rgthree/rgthree-comfy.git ${COMFYUI_PATH}/custom_nodes/rgthree-comfy && \
@@ -76,9 +76,9 @@ RUN git clone https://github.com/rgthree/rgthree-comfy.git ${COMFYUI_PATH}/custo
 # Example - adjust paths and URLs
 
 RUN mkdir -p ${COMFYUI_PATH}/models/loras && \
-    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_angie.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_angie.safetensors"
-    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_ava.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_ava.safetensors"
-    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_apple.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_apple.safetensors"
+    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_angie.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_angie.safetensors" && \
+    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_ava.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_ava.safetensors" && \
+    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_apple.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_apple.safetensors" && \
     wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_alice.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_alice.safetensors"
 
 # Repeat for vae, clip, and your 4 LoRAs in /models/loras/
@@ -120,7 +120,7 @@ FROM base AS downloader
 
 ARG HUGGINGFACE_ACCESS_TOKEN
 # Set default model type if none is provided
-ARG MODEL_TYPE=flux1-dev-fp8
+ARG MODEL_TYPE=z-image-turbo
 
 # Change working directory to ComfyUI
 WORKDIR /comfyui
@@ -160,8 +160,7 @@ RUN if [ "$MODEL_TYPE" = "flux1-dev-fp8" ]; then \
 RUN if [ "$MODEL_TYPE" = "z-image-turbo" ]; then \
       wget -q -O models/text_encoders/qwen_3_4b.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors && \
       wget -q -O models/diffusion_models/z_image_turbo_bf16.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors && \
-      wget -q -O models/vae/ae.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors && \
-      wget -q -O models/model_patches/Z-Image-Turbo-Fun-Controlnet-Union.safetensors https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors; \
+      wget -q -O models/vae/ae.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors ;  \
     fi
 
 # Stage 3: Final image
