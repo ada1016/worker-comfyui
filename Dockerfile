@@ -60,6 +60,30 @@ RUN if [ -n "${CUDA_VERSION_FOR_COMFY}" ]; then \
 RUN if [ "$ENABLE_PYTORCH_UPGRADE" = "true" ]; then \
       uv pip install --force-reinstall torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}; \
     fi
+# Steven here
+# 安裝 ResizeImagesByLongerEdge 所在的插件包
+RUN git clone https://github.com/zhangp365/ComfyUI-utils-nodes.git
+
+# 安裝 Impact Pack (包含 LatentSwitch) 並處理其 Python 依賴
+RUN git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git && \
+    cd ComfyUI-Impact-Pack && \
+    pip install -r requirements.txt
+
+RUN git clone https://github.com/rgthree/rgthree-comfy.git ${COMFYUI_PATH}/custom_nodes/rgthree-comfy && \
+    cd ${COMFYUI_PATH}/custom_nodes/rgthree-comfy && \
+    pip install -r requirements.txt --no-cache-dir
+
+# Example - adjust paths and URLs
+
+RUN mkdir -p ${COMFYUI_PATH}/models/loras && \
+    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_angie.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_angie.safetensors"
+    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_ava.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_ava.safetensors"
+    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_apple.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_apple.safetensors"
+    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_alice.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_alice.safetensors"
+
+# Repeat for vae, clip, and your 4 LoRAs in /models/loras/
+
+#Steven End
 
 # Change working directory to ComfyUI
 WORKDIR /comfyui
