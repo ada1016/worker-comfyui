@@ -1,170 +1,46 @@
-# Build argument for base image selection
+# 基於您提供的基礎鏡像
 ARG BASE_IMAGE=nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
-
-# Stage 1: Base image with common dependencies
 FROM ${BASE_IMAGE} AS base
 
-# Build arguments for this stage with sensible defaults for standalone builds
-ARG COMFYUI_VERSION=latest
-ARG CUDA_VERSION_FOR_COMFY
-ARG ENABLE_PYTORCH_UPGRADE=false
-ARG PYTORCH_INDEX_URL
+# --- 基礎環境設定 (維持不變) ---
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_PREFER_BINARY=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}"
 
-# Prevents prompts from packages asking for user input during installation
-ENV DEBIAN_FRONTEND=noninteractive
-# Prefer binary wheels over source distributions for faster pip installations
-ENV PIP_PREFER_BINARY=1
-# Ensures output from python is printed immediately to the terminal without buffering
-ENV PYTHONUNBUFFERED=1
-# Speed up some cmake builds
-ENV CMAKE_BUILD_PARALLEL_LEVEL=8
+# 安裝必要工具 (git, wget, python 等)
+RUN apt-get update && apt-get install -y python3.12 python3.12-venv git wget libgl1 libglib2.0-0 ffmpeg && \
+    ln -sf /usr/bin/python3.12 /usr/bin/python && \
+    wget -qO- https://astral.sh/uv/install.sh | sh && \
+    ln -s /root/.local/bin/uv /usr/local/bin/uv && \
+    uv venv /opt/venv
 
-# Install Python, git and other necessary tools
-RUN apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-venv \
-    git \
-    wget \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    ffmpeg \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip
+# 安裝 ComfyUI 核心
+RUN uv pip install comfy-cli pip setuptools wheel && \
+    /usr/bin/yes | comfy --workspace /comfyui install --nvidia
 
-# Clean up to reduce image size
-RUN apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+# --- 插件處理：僅安裝「核心必需」或「體積小」的插件 ---
+WORKDIR /comfyui/custom_nodes
+RUN git clone https://github.com/zhangp365/ComfyUI-utils-nodes.git && \
+    git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git && \
+    uv pip install -r ComfyUI-Impact-Pack/requirements.txt && \
+    git clone https://github.com/rgthree/rgthree-comfy.git && \
+    uv pip install -r rgthree-comfy/requirements.txt
 
-# Install uv (latest) using official installer and create isolated venv
-RUN wget -qO- https://astral.sh/uv/install.sh | sh \
-    && ln -s /root/.local/bin/uv /usr/local/bin/uv \
-    && ln -s /root/.local/bin/uvx /usr/local/bin/uvx \
-    && uv venv /opt/venv
-
-# Use the virtual environment for all subsequent commands
-ENV PATH="/opt/venv/bin:${PATH}"
-
-# Install comfy-cli + dependencies needed by it to install ComfyUI
-RUN uv pip install comfy-cli pip setuptools wheel
-
-# Install ComfyUI
-RUN if [ -n "${CUDA_VERSION_FOR_COMFY}" ]; then \
-      /usr/bin/yes | comfy --workspace /comfyui install --version "${COMFYUI_VERSION}" --cuda-version "${CUDA_VERSION_FOR_COMFY}" --nvidia; \
-    else \
-      /usr/bin/yes | comfy --workspace /comfyui install --version "${COMFYUI_VERSION}" --nvidia; \
-    fi
-
-# Upgrade PyTorch if needed (for newer CUDA versions)
-RUN if [ "$ENABLE_PYTORCH_UPGRADE" = "true" ]; then \
-      uv pip install --force-reinstall torch torchvision torchaudio --index-url ${PYTORCH_INDEX_URL}; \
-    fi
-# Steven here
-# 安裝 ResizeImagesByLongerEdge 所在的插件包
-RUN git clone https://github.com/zhangp365/ComfyUI-utils-nodes.git ${COMFYUI_PATH}/custom_nodes/ComfyUI-utils-nodes
-
-# 安裝 Impact Pack (包含 LatentSwitch) 並處理其 Python 依賴
-RUN git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git ${COMFYUI_PATH}/custom_nodes/ComfyUI-Impact-Pack && \
-    cd ${COMFYUI_PATH}/custom_nodes/ComfyUI-Impact-Pack && \
-    pip install -r requirements.txt
-
-RUN git clone https://github.com/rgthree/rgthree-comfy.git ${COMFYUI_PATH}/custom_nodes/rgthree-comfy && \
-    cd ${COMFYUI_PATH}/custom_nodes/rgthree-comfy && \
-    pip install -r requirements.txt --no-cache-dir
-
-# Example - adjust paths and URLs
-
-RUN mkdir -p ${COMFYUI_PATH}/models/loras && \
-    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_angie.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_angie.safetensors" && \
-    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_ava.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_ava.safetensors" && \
-    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_apple.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_apple.safetensors" && \
-    wget -O ${COMFYUI_PATH}/models/loras/zimage_lora_sks_alice.safetensors "https://huggingface.co/ada1016/difusion-pipe-train/resolve/main/zimage_lora_sks_alice.safetensors"
-
-# Repeat for vae, clip, and your 4 LoRAs in /models/loras/
-
-#Steven End
-
-# Change working directory to ComfyUI
+# --- 網路磁碟關鍵設定 ---
 WORKDIR /comfyui
 
-# Support for the network volume
+# 複製設定檔，讓 ComfyUI 知道去 /runpod-volume 找模型
 ADD src/extra_model_paths.yaml ./
 
-# Go back to the root
-WORKDIR /
-
-# Install Python runtime dependencies for the handler
+# 安裝 RunPod Handler 依賴
 RUN uv pip install runpod requests websocket-client
-
-# Add application code and scripts
-ADD src/start.sh src/network_volume.py handler.py test_input.json ./
+ADD src/start.sh handler.py ./
 RUN chmod +x /start.sh
 
-# Add script to install custom nodes
-COPY scripts/comfy-node-install.sh /usr/local/bin/comfy-node-install
-RUN chmod +x /usr/local/bin/comfy-node-install
+# --- 修改啟動指令 ---
+# 功能：自動連結網路磁碟中的自定義節點，然後執行啟動腳本
+CMD ["sh", "-c", "ln -sf /runpod-volume/comfyui/custom_nodes/* /comfyui/custom_nodes/ && /start.sh"]
 
-# Prevent pip from asking for confirmation during uninstall steps in custom nodes
-ENV PIP_NO_INPUT=1
-
-# Copy helper script to switch Manager network mode at container start
-COPY scripts/comfy-manager-set-mode.sh /usr/local/bin/comfy-manager-set-mode
-RUN chmod +x /usr/local/bin/comfy-manager-set-mode
-
-# Set the default command to run when starting the container
-CMD ["/start.sh"]
-
-# Stage 2: Download models
-FROM base AS downloader
-
-ARG HUGGINGFACE_ACCESS_TOKEN
-# Set default model type if none is provided
-ARG MODEL_TYPE=z-image-turbo
-
-# Change working directory to ComfyUI
-WORKDIR /comfyui
-
-# Create necessary directories upfront
-RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/text_encoders models/diffusion_models models/model_patches
-
-# Download checkpoints/vae/unet/clip models to include in image based on model type
-RUN if [ "$MODEL_TYPE" = "sdxl" ]; then \
-      wget -q -O models/checkpoints/sd_xl_base_1.0.safetensors https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors && \
-      wget -q -O models/vae/sdxl_vae.safetensors https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors && \
-      wget -q -O models/vae/sdxl-vae-fp16-fix.safetensors https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors; \
-    fi
-
-RUN if [ "$MODEL_TYPE" = "sd3" ]; then \
-      wget -q --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/checkpoints/sd3_medium_incl_clips_t5xxlfp8.safetensors https://huggingface.co/stabilityai/stable-diffusion-3-medium/resolve/main/sd3_medium_incl_clips_t5xxlfp8.safetensors; \
-    fi
-
-RUN if [ "$MODEL_TYPE" = "flux1-schnell" ]; then \
-      wget -q --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/unet/flux1-schnell.safetensors https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/flux1-schnell.safetensors && \
-      wget -q -O models/clip/clip_l.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors && \
-      wget -q -O models/clip/t5xxl_fp8_e4m3fn.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors && \
-      wget -q --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/ae.safetensors; \
-    fi
-
-RUN if [ "$MODEL_TYPE" = "flux1-dev" ]; then \
-      wget -q --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/unet/flux1-dev.safetensors https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/flux1-dev.safetensors && \
-      wget -q -O models/clip/clip_l.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors && \
-      wget -q -O models/clip/t5xxl_fp8_e4m3fn.safetensors https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors && \
-      wget -q --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/ae.safetensors; \
-    fi
-
-RUN if [ "$MODEL_TYPE" = "flux1-dev-fp8" ]; then \
-      wget -q -O models/checkpoints/flux1-dev-fp8.safetensors https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors; \
-    fi
-
-RUN if [ "$MODEL_TYPE" = "z-image-turbo" ]; then \
-      wget -q -O models/text_encoders/qwen_3_4b.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors && \
-      wget -q -O models/diffusion_models/z_image_turbo_bf16.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors && \
-      wget -q -O models/vae/ae.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors ;  \
-    fi
-
-# Stage 3: Final image
-FROM base AS final
-
-# Copy models from stage 2 to the final image
-COPY --from=downloader /comfyui/models /comfyui/models
+# 注意：移除原本的 Stage 2 (downloader) 和 Stage 3 (final)
+# 這樣鏡像會變得非常輕量，只包含程式碼，不包含模型檔案。
