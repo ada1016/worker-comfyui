@@ -35,7 +35,11 @@ ADD src/extra_model_paths.yaml ./
 
 # 安裝 RunPod Handler 依賴
 RUN uv pip install runpod requests websocket-client
-ADD src/start.sh handler.py ./
+# 確保使用絕對路徑進行複製
+ADD src/start.sh /start.sh
+ADD handler.py /handler.py
+
+# 執行賦予權限時，同樣指向根目錄下的絕對路徑
 RUN chmod +x /start.sh
 
 # --- 修改啟動指令 ---
